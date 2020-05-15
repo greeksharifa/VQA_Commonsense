@@ -77,6 +77,8 @@ class VQA:
         self.output = args.output
         os.makedirs(self.output, exist_ok=True)
 
+        self.check_sentence = False
+
     def train(self, train_tuple, eval_tuple):
         dset, loader, evaluator = train_tuple
         iter_wrapper = (lambda x: tqdm(x, total=len(loader))) if args.tqdm else (lambda x: x)
@@ -86,11 +88,17 @@ class VQA:
             quesid2ans = {}
             for i, (ques_id, feats, boxes, sent, target) in iter_wrapper(enumerate(loader)):
 
+                if not self.check_sentence:
+                    self.check_sentence = True
+                    print('i: {}\nques_id: {}\n{}\nfeats: {}\n{}\nboxes: {}\n{}\nsent: {}\n{}\ntarget: {}\n{} \n'
+                          .format(i, ques_id.shape, ques_id[0], feats.shape, feats[0],
+                                  boxes.shape, boxes[0], len(sent), sent[0], target.shape, target[0]))
+
                 self.model.train()
                 self.optim.zero_grad()
 
                 feats, boxes, target = feats.cuda(), boxes.cuda(), target.cuda()
-                logit = self.model(feats, boxes, sent)
+                logit = self.model(feats, boxes, sent, comn_sents=sent)
                 assert logit.dim() == target.dim() == 2
                 loss = self.bce_loss(logit, target)
                 loss = loss * logit.size(1)

@@ -46,6 +46,7 @@ class VQADataset:
     """
     def __init__(self, splits: str):
         self.name = splits
+        print('self.name = splits:', self.name)
         self.splits = splits.split(',')
 
         # Loading datasets

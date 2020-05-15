@@ -73,6 +73,7 @@ def parse_args():
     parser.add_argument("--llayers", default=9, type=int, help='Number of Language layers')
     parser.add_argument("--xlayers", default=5, type=int, help='Number of CROSS-modality layers.')
     parser.add_argument("--rlayers", default=5, type=int, help='Number of object Relationship layers.')
+    parser.add_argument("--clayers", default=5, type=int, help='Number of Common Sense layers.')
 
     # LXMERT Pre-training Config
     parser.add_argument("--taskMatched", dest='task_matched', action='store_const', default=False, const=True)

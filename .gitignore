@@ -1,3 +1,14 @@
 *.caffemodel
 *.tsv
+*.csv
+*.txt
+*.gz
+
+
+/numberbatch
+/conceptnet
+/data
 /snap
+.idea/
+
+*__pycache__*

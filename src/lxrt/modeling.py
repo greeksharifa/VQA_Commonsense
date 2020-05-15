@@ -26,12 +26,15 @@ import tarfile
 import tempfile
 import sys
 from io import open
+import pickle
+
 
 import torch
 from torch import nn
 from torch.nn import CrossEntropyLoss, SmoothL1Loss
 
 from .file_utils import cached_path
+
 
 logger = logging.getLogger(__name__)
 
@@ -143,10 +146,12 @@ class VisualConfig(object):
     def __init__(self,
                  l_layers=12,
                  x_layers=5,
-                 r_layers=0):
+                 r_layers=0,
+                 c_layers=5):
         self.l_layers = l_layers
         self.x_layers = x_layers
         self.r_layers = r_layers
+        self.c_layers = c_layers
 
         self.visual_feat_dim = 2048
         self.visual_pos_dim = 4
@@ -260,6 +265,31 @@ class BertConfig(object):
 
 BertLayerNorm = torch.nn.LayerNorm
 
+def convert_numberbatch_encoding(vocab_size, hidden_size, padding_idx):
+    word_embeddings = nn.Embedding(vocab_size, hidden_size, padding_idx=padding_idx)
+
+    d = pickle.load(open('numberbatch/vocab.pickle', 'rb'))
+    cnt = 0
+    with open('numberbatch/numberbatch-en-19.08.txt') as f:
+        for i, line in enumerate(f.readlines()):
+            if i >= 2:
+                word, *emb = line.split()
+                emb = torch.FloatTensor(list(map(float, emb)))
+                if i< 4:
+                    print(emb.shape)
+                if word in d.keys():
+                    cnt += 1
+                    idx = d[word]
+                    tmp = torch.zeros_like(word_embeddings.weight[idx])
+                    tmp[:emb.size(0)] = emb
+                    word_embeddings.weight[idx] = tmp
+
+
+    print('*' * 100)
+    print('load successful, cnt=', cnt)
+    print('*' * 100)
+    return word_embeddings
+
 
 class BertEmbeddings(nn.Module):
     """Construct the embeddings from word, position and token_type embeddings.
@@ -267,6 +297,28 @@ class BertEmbeddings(nn.Module):
     def __init__(self, config):
         super(BertEmbeddings, self).__init__()
         self.word_embeddings = nn.Embedding(config.vocab_size, config.hidden_size, padding_idx=0)
+        # self.word_embeddings = convert_numberbatch_encoding(config.vocab_size, config.hidden_size, padding_idx=0)
+
+        d = pickle.load(open('numberbatch/vocab.pickle', 'rb'))
+        cnt = 0
+        with open('numberbatch/numberbatch-en-19.08.txt') as f:
+            for i, line in enumerate(f.readlines()):
+                if i >= 2:
+                    word, *emb = line.split()
+                    emb = torch.FloatTensor(list(map(float, emb)))
+                    emb.requires_grad_()
+                    if word in d.keys():
+                        cnt += 1
+                        if cnt % 50 == 0:
+                            print('\r', cnt, end='')
+                        idx = d[word]
+                        tmp = torch.zeros(config.hidden_size, requires_grad=True)
+                        tmp[:emb.size(0)] = emb
+                        self.word_embeddings.weight[idx].data.copy_(tmp)#  = tmp
+
+        print('\n', '*' * 100)
+        print('load successful, cnt=', cnt, '\n', '*' * 100)
+
         self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size, padding_idx=0)
         self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.hidden_size, padding_idx=0)
 
@@ -445,12 +497,15 @@ class LXRTXLayer(nn.Module):
         # Self-attention Layers
         self.lang_self_att = BertSelfattLayer(config)
         self.visn_self_att = BertSelfattLayer(config)
+        self.comn_self_att = BertSelfattLayer(config)
 
         # Intermediate and Output Layers (FFNs)
         self.lang_inter = BertIntermediate(config)
         self.lang_output = BertOutput(config)
         self.visn_inter = BertIntermediate(config)
         self.visn_output = BertOutput(config)
+        self.comn_inter = BertIntermediate(config)
+        self.comn_output = BertOutput(config)
 
     def cross_att(self, lang_input, lang_attention_mask, visn_input, visn_attention_mask):
         # Cross Attention
@@ -528,13 +583,17 @@ class LXRTEncoder(nn.Module):
         self.num_l_layers = VISUAL_CONFIG.l_layers
         self.num_x_layers = VISUAL_CONFIG.x_layers
         self.num_r_layers = VISUAL_CONFIG.r_layers
-        print("LXRT encoder with %d l_layers, %d x_layers, and %d r_layers." %
-              (self.num_l_layers, self.num_x_layers, self.num_r_layers))
+        self.num_c_layers = VISUAL_CONFIG.c_layers
+        print("LXRT encoder with %d l_layers, %d x_layers, %d r_layers, and %d c_layers." %
+              (self.num_l_layers, self.num_x_layers, self.num_r_layers, self.num_c_layers))
 
         # Layers
         # Using self.layer instead of self.l_layer to support loading BERT weights.
         self.layer = nn.ModuleList(
             [BertLayer(config) for _ in range(self.num_l_layers)]
+        )
+        self.c_layers = nn.ModuleList(
+            [BertLayer(config) for _ in range(self.num_c_layers)]
         )
         self.x_layers = nn.ModuleList(
             [LXRTXLayer(config) for _ in range(self.num_x_layers)]
@@ -542,8 +601,12 @@ class LXRTEncoder(nn.Module):
         self.r_layers = nn.ModuleList(
             [BertLayer(config) for _ in range(self.num_r_layers)]
         )
+        self.xc_layers = nn.ModuleList(
+            [LXRTXLayer(config) for _ in range(self.num_x_layers)]
+        )
 
-    def forward(self, lang_feats, lang_attention_mask,
+
+    def forward(self, lang_feats, lang_attention_mask, comn_feats, comn_attention_mask,
                 visn_feats, visn_attention_mask=None):
         # Run visual embedding layer
         # Note: Word embedding layer was executed outside this module.
@@ -553,6 +616,9 @@ class LXRTEncoder(nn.Module):
         # Run language layers
         for layer_module in self.layer:
             lang_feats = layer_module(lang_feats, lang_attention_mask)
+        # Run commonsense layers
+        for layer_module in self.c_layers:
+            comn_feats = layer_module(visn_feats, visn_attention_mask)
 
         # Run relational layers
         for layer_module in self.r_layers:
@@ -562,8 +628,12 @@ class LXRTEncoder(nn.Module):
         for layer_module in self.x_layers:
             lang_feats, visn_feats = layer_module(lang_feats, lang_attention_mask,
                                                   visn_feats, visn_attention_mask)
+        # Run cross-modality layers for comn
+        for layer_module in self.xc_layers:
+            comn_feats, visn_feats = layer_module(comn_feats, comn_attention_mask,
+                                                  visn_feats, visn_attention_mask)
 
-        return lang_feats, visn_feats
+        return lang_feats, comn_feats, visn_feats
 
 
 class BertPooler(nn.Module):
@@ -771,7 +841,11 @@ class BertPreTrainedModel(nn.Module):
             serialization_dir = tempdir
         # Load config
         config_file = os.path.join(serialization_dir, CONFIG_NAME)
+        print('$' * 200, '\n')
         config = BertConfig.from_json_file(config_file)
+        print(config_file)
+        print(config)
+        print('$' * 200, '\n')
         logger.info("Model config {}".format(config))
         # Instantiate model.
         model = cls(config, *inputs, **kwargs)
@@ -843,47 +917,66 @@ class LXRTModel(BertPreTrainedModel):
         self.apply(self.init_bert_weights)
 
     def forward(self, input_ids, token_type_ids=None, attention_mask=None,
+                comn_input_ids=None, comn_token_type_ids=None, comn_attention_mask=None,
                 visual_feats=None, visual_attention_mask=None):
         if attention_mask is None:
             attention_mask = torch.ones_like(input_ids)
         if token_type_ids is None:
             token_type_ids = torch.zeros_like(input_ids)
+        if comn_attention_mask is None:
+            comn_attention_mask = torch.ones_like(comn_input_ids)
+        if comn_token_type_ids is None:
+            comn_token_type_ids = torch.zeros_like(comn_input_ids)
+
 
         # We create a 3D attention mask from a 2D tensor mask.
         # Sizes are [batch_size, 1, 1, to_seq_length]
         # So we can broadcast to [batch_size, num_heads, from_seq_length, to_seq_length]
         # this attention mask is more simple than the triangular masking of causal attention
         # used in OpenAI GPT, we just need to prepare the broadcast dimension here.
-        extended_attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
 
-        # Since attention_mask is 1.0 for positions we want to attend and 0.0 for
-        # masked positions, this operation will create a tensor which is 0.0 for
-        # positions we want to attend and -10000.0 for masked positions.
-        # Since we are adding it to the raw scores before the softmax, this is
-        # effectively the same as removing these entirely.
-        extended_attention_mask = extended_attention_mask.to(dtype=next(self.parameters()).dtype) # fp16 compatibility
-        extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
+        def extend_attention_mask(att_mask):
+
+            extended_attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
+
+            # Since attention_mask is 1.0 for positions we want to attend and 0.0 for
+            # masked positions, this operation will create a tensor which is 0.0 for
+            # positions we want to attend and -10000.0 for masked position  s.
+            # Since we are adding it to the raw scores before the softmax, this is
+            # effectively the same as removing these entirely.
+            extended_attention_mask = extended_attention_mask.to(dtype=next(self.parameters()).dtype) # fp16 compatibility
+            extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
+
+            return extended_attention_mask
+
+        extended_attention_mask = extend_attention_mask(attention_mask)
+        comn_extended_attention_mask = extend_attention_mask(comn_attention_mask)
 
         # Process the visual attention mask
         if visual_attention_mask is not None:
-            extended_visual_attention_mask = visual_attention_mask.unsqueeze(1).unsqueeze(2)
-            extended_visual_attention_mask = extended_visual_attention_mask.to(dtype=next(self.parameters()).dtype) # fp16 compatibility
-            extended_visual_attention_mask = (1.0 - extended_visual_attention_mask) * -10000.0
+            extended_visual_attention_mask = extend_attention_mask(visual_attention_mask)
+            # extended_visual_attention_mask = visual_attention_mask.unsqueeze(1).unsqueeze(2)
+            # extended_visual_attention_mask = extended_visual_attention_mask.to(dtype=next(self.parameters()).dtype) # fp16 compatibility
+            # extended_visual_attention_mask = (1.0 - extended_visual_attention_mask) * -10000.0
         else:
             extended_visual_attention_mask = None
 
         # Positional Word Embeddings
         embedding_output = self.embeddings(input_ids, token_type_ids)
+        comn_embedding_output = self.embeddings(comn_input_ids, comn_token_type_ids)
+
 
         # Run LXRT backbone
-        lang_feats, visn_feats = self.encoder(
+        lang_feats, comn_feats, visn_feats = self.encoder(
             embedding_output,
             extended_attention_mask,
+            comn_embedding_output,
+            comn_extended_attention_mask,
             visn_feats=visual_feats,
             visn_attention_mask=extended_visual_attention_mask)
         pooled_output = self.pooler(lang_feats)
 
-        return (lang_feats, visn_feats), pooled_output
+        return (lang_feats, comn_feats, visn_feats), pooled_output
 
 
 class LXRTPretraining(BertPreTrainedModel):
@@ -1004,9 +1097,11 @@ class LXRTFeatureExtraction(BertPreTrainedModel):
         self.mode = mode
         self.apply(self.init_bert_weights)
 
-    def forward(self, input_ids, token_type_ids=None, attention_mask=None, visual_feats=None,
-                visual_attention_mask=None):
+    def forward(self, input_ids, token_type_ids=None, attention_mask=None,
+                comn_input_ids=None, comn_token_type_ids=None, comn_attention_mask=None,
+                visual_feats=None, visual_attention_mask=None):
         feat_seq, pooled_output = self.bert(input_ids, token_type_ids, attention_mask,
+                                            comn_input_ids, comn_token_type_ids, comn_attention_mask,
                                             visual_feats=visual_feats,
                                             visual_attention_mask=visual_attention_mask)
         if 'x' == self.mode:

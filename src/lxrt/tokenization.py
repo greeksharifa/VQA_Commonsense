@@ -19,6 +19,7 @@ import logging
 import os
 import unicodedata
 from io import open
+import pickle
 
 from .file_utils import cached_path
 
@@ -57,6 +58,8 @@ def load_vocab(vocab_file):
             token = token.strip()
             vocab[token] = index
             index += 1
+
+    pickle.dump(vocab, file=open('numberbatch/vocab.pickle', 'wb'))
     return vocab
 
 

@@ -31,17 +31,18 @@ class VQAModel(nn.Module):
         )
         self.logit_fc.apply(self.lxrt_encoder.model.init_bert_weights)
 
-    def forward(self, feat, pos, sent):
+    def forward(self, feat, pos, sent, comn_sents):
         """
         b -- batch_size, o -- object_number, f -- visual_feature_size
 
         :param feat: (b, o, f)
         :param pos:  (b, o, 4)
         :param sent: (b,) Type -- list of string
+        :param comn_sents: (b, ) Type -- list of string
         :param leng: (b,) Type -- int numpy array
         :return: (b, num_answer) The logit of each answers.
         """
-        x = self.lxrt_encoder(sent, (feat, pos))
+        x = self.lxrt_encoder(sent, comn_sents, (feat, pos))
         logit = self.logit_fc(x)
 
         return logit

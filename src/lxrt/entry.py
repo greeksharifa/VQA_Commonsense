@@ -75,6 +75,7 @@ def set_visual_config(args):
     VISUAL_CONFIG.l_layers = args.llayers
     VISUAL_CONFIG.x_layers = args.xlayers
     VISUAL_CONFIG.r_layers = args.rlayers
+    VISUAL_CONFIG.c_layers = args.clayers
 
 
 class LXRTEncoder(nn.Module):
@@ -103,18 +104,25 @@ class LXRTEncoder(nn.Module):
         self.model = nn.DataParallel(self.model)
 
     @property
-    def dim(self):
+    def dim(self): 
         return 768
 
-    def forward(self, sents, feats, visual_attention_mask=None):
+    def forward(self, sents, comn_sents, feats, visual_attention_mask=None):
         train_features = convert_sents_to_features(
             sents, self.max_seq_length, self.tokenizer)
+        train_comn_features = convert_sents_to_features(
+            comn_sents, self.max_seq_length, self.tokenizer)
 
         input_ids = torch.tensor([f.input_ids for f in train_features], dtype=torch.long).cuda()
         input_mask = torch.tensor([f.input_mask for f in train_features], dtype=torch.long).cuda()
         segment_ids = torch.tensor([f.segment_ids for f in train_features], dtype=torch.long).cuda()
 
+        comn_input_ids = torch.tensor([f.input_ids for f in train_comn_features], dtype=torch.long).cuda()
+        comn_input_mask = torch.tensor([f.input_mask for f in train_comn_features], dtype=torch.long).cuda()
+        comn_segment_ids = torch.tensor([f.segment_ids for f in train_comn_features], dtype=torch.long).cuda()
+
         output = self.model(input_ids, segment_ids, input_mask,
+                            comn_input_ids, comn_segment_ids, comn_input_mask,
                             visual_feats=feats,
                             visual_attention_mask=visual_attention_mask)
         return output
