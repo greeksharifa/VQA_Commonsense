@@ -5,9 +5,12 @@
 *.gz
 
 
-/numberbatch
-/conceptnet
-/data
+/data/mscoco_imgfeat
+/data/vg_gqa_imgfeat
+/data/nlvr2_imgfeat
+/data/nlvr2
+/data/vqa/comn_*.json
+/data/vqa/backup
 /snap
 .idea/
 
