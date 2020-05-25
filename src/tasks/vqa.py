@@ -86,7 +86,7 @@ class VQA:
         best_valid = 0.
         for epoch in range(args.epochs):
             quesid2ans = {}
-            for i, (ques_id, feats, boxes, sent, target) in iter_wrapper(enumerate(loader)):
+            for i, (ques_id, feats, boxes, sent, comn, target) in iter_wrapper(enumerate(loader)):
 
                 if not self.check_sentence:
                     self.check_sentence = True
@@ -98,7 +98,7 @@ class VQA:
                 self.optim.zero_grad()
 
                 feats, boxes, target = feats.cuda(), boxes.cuda(), target.cuda()
-                logit = self.model(feats, boxes, sent, comn_sents=sent)
+                logit = self.model(feats, boxes, sent, comn_sents=comn)
                 assert logit.dim() == target.dim() == 2
                 loss = self.bce_loss(logit, target)
                 loss = loss * logit.size(1)
@@ -143,10 +143,10 @@ class VQA:
         dset, loader, evaluator = eval_tuple
         quesid2ans = {}
         for i, datum_tuple in enumerate(loader):
-            ques_id, feats, boxes, sent = datum_tuple[:4]   # Avoid seeing ground truth
+            ques_id, feats, boxes, sent, comn = datum_tuple[:5]   # Avoid seeing ground truth
             with torch.no_grad():
                 feats, boxes = feats.cuda(), boxes.cuda()
-                logit = self.model(feats, boxes, sent)
+                logit = self.model(feats, boxes, sent, comn_sents=comn)
                 score, label = logit.max(1)
                 for qid, l in zip(ques_id, label.cpu().numpy()):
                     ans = dset.label2ans[l]
@@ -164,7 +164,7 @@ class VQA:
     def oracle_score(data_tuple):
         dset, loader, evaluator = data_tuple
         quesid2ans = {}
-        for i, (ques_id, feats, boxes, sent, target) in enumerate(loader):
+        for i, (ques_id, feats, boxes, sent, comn, target) in enumerate(loader): #TODO
             _, label = target.max(1)
             for qid, l in zip(ques_id, label.cpu().numpy()):
                 ans = dset.label2ans[l]

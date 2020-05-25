@@ -52,7 +52,7 @@ class VQADataset:
         # Loading datasets
         self.data = []
         for split in self.splits:
-            self.data.extend(json.load(open("data/vqa/%s.json" % split)))
+            self.data.extend(json.load(open("data/vqa/comn_sents_%s.json" % split)))
         print("Load %d data from split(s) %s." % (len(self.data), self.name))
 
         # Convert list to dict (for evaluation)
@@ -119,11 +119,13 @@ class VQATorchDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, item: int):
+        # print('dataset.name:', self.raw_dataset.name)
         datum = self.data[item]
 
         img_id = datum['img_id']
         ques_id = datum['question_id']
         ques = datum['sent']
+        comn = datum['comn_sent']
 
         # Get image info
         img_info = self.imgid2img[img_id]
@@ -146,9 +148,9 @@ class VQATorchDataset(Dataset):
             target = torch.zeros(self.raw_dataset.num_answers)
             for ans, score in label.items():
                 target[self.raw_dataset.ans2label[ans]] = score
-            return ques_id, feats, boxes, ques, target
+            return ques_id, feats, boxes, ques, comn, target
         else:
-            return ques_id, feats, boxes, ques
+            return ques_id, feats, boxes, ques, comn
 
 
 class VQAEvaluator:

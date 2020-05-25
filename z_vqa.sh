@@ -1,1 +1,1 @@
-bash run/vqa_finetune.bash 0 vqa_lxr955_tiny --tiny
+bash run/vqa_finetune.bash 0 vqac_lxr9555_tiny --tiny

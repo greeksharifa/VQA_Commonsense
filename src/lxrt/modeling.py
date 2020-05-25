@@ -16,6 +16,7 @@
 # limitations under the License.
 """PyTorch LXRT model."""
 
+from tqdm import tqdm
 import copy
 import json
 import logging
@@ -302,22 +303,19 @@ class BertEmbeddings(nn.Module):
         d = pickle.load(open('numberbatch/vocab.pickle', 'rb'))
         cnt = 0
         with open('numberbatch/numberbatch-en-19.08.txt') as f:
-            for i, line in enumerate(f.readlines()):
+            for i, line in enumerate(tqdm(f.readlines())):
                 if i >= 2:
                     word, *emb = line.split()
                     emb = torch.FloatTensor(list(map(float, emb)))
                     emb.requires_grad_()
                     if word in d.keys():
                         cnt += 1
-                        if cnt % 50 == 0:
-                            print('\r', cnt, end='')
                         idx = d[word]
                         tmp = torch.zeros(config.hidden_size, requires_grad=True)
                         tmp[:emb.size(0)] = emb
                         self.word_embeddings.weight[idx].data.copy_(tmp)#  = tmp
 
-        print('\n', '*' * 100)
-        print('load successful, cnt=', cnt, '\n', '*' * 100)
+        print('Embeddings load successful, cnt=', cnt)
 
         self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size, padding_idx=0)
         self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.hidden_size, padding_idx=0)
@@ -618,7 +616,7 @@ class LXRTEncoder(nn.Module):
             lang_feats = layer_module(lang_feats, lang_attention_mask)
         # Run commonsense layers
         for layer_module in self.c_layers:
-            comn_feats = layer_module(visn_feats, visn_attention_mask)
+            comn_feats = layer_module(comn_feats, comn_attention_mask)
 
         # Run relational layers
         for layer_module in self.r_layers:

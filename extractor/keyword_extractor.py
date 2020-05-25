@@ -1,7 +1,9 @@
+from pprint import pprint
 import re
 from tqdm import tqdm
 import json
 import pandas as pd
+from collections import Counter
 
 from nltk.corpus import stopwords
 from nltk.stem.porter import PorterStemmer
@@ -50,13 +52,17 @@ def triplet_to_word2row_idx():
     word2row_idx = dict()
 
     with open('../conceptnet/english_triplet.txt', 'r', encoding='utf-8') as in_file:
-        for row_idx, line in enumerate(tqdm(in_file.readlines())):
+        comn_sents = in_file.readlines()
+        for row_idx, line in enumerate(tqdm(comn_sents)):
             for word in line.strip().split(' '):
                 if word not in word2row_idx:
                     word2row_idx[word] = set()
                 word2row_idx[word].add(row_idx)
 
-    return word2row_idx
+    print("comn_sents:")
+    print(comn_sents[:20])
+
+    return word2row_idx, comn_sents
 
 
 for name in filenames:
@@ -64,6 +70,8 @@ for name in filenames:
         break
     filename = "../data/vqa/{}.json".format(name)
     print('filename:', filename)
+
+    vqa_dataset = json.load(open(filename, 'r', encoding='utf-8'))
 
     dataset = pd.read_json(filename)
     # dataset = dataset_paper
@@ -84,7 +92,7 @@ for name in filenames:
     # get feature names
     feature_names = cv.get_feature_names()
 
-    word2row_idxs = triplet_to_word2row_idx()
+    word2row_idxs, comn_sents = triplet_to_word2row_idx()
 
     # fetch document for which keywords needs to be extracted
     # print('len(corpus):', len(corpus))
@@ -157,7 +165,24 @@ for name in filenames:
         #print('result_set:', len(result_set))
         qid2row_idxs[i] = list(result_set)
 
-    with open('../data/vqa/comn_' + name + '.json', 'w', encoding='utf-8') as fp:
-        json.dump(qid2row_idxs, fp=fp)
+        try:
+            comn_sent = comn_sents[next(iter(result_set))]
+        except StopIteration:
+            comn_sent = "nothing"
+
+        vqa_dataset[i]["comn_sent"] = comn_sent.strip()
+
+        '''with open('../data/vqa/comn_sents_' + name + '.json', 'a', encoding='utf-8') as fp:
+            pprint(vqa_dataset[i], stream=fp)
+            print(comn_sent, file=fp, end='')
+
+        if i < 20:
+            pprint(vqa_dataset[i], stream=open())'''
+
+
+    with open('../data/vqa/comn_sents_' + name + '.json', 'w', encoding='utf-8') as fp:
+    #    json.dump(qid2row_idxs, fp=fp)
+        # json.dump(vqa_dataset, sort_keys=True, indent=4, fp=fp)
+        json.dump(vqa_dataset, indent=4, fp=fp)
 
     # x = True
